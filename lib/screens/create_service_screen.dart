@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../providers/company_provider.dart';
 import '../services/api_exception.dart';
+import '../widgets/app_input.dart';
 import '../widgets/form_container.dart';
+import '../widgets/top_bar.dart';
 
 class CreateServiceScreen extends StatefulWidget {
   const CreateServiceScreen({super.key, this.initialCompanyId});
@@ -69,7 +71,7 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
         price: double.parse(_priceController.text.trim()),
       );
       messenger.showSnackBar(
-        const SnackBar(content: Text('Service created successfully')),
+        const SnackBar(content: Text('Service created')),
       );
       navigator.pop();
     } on ApiException catch (e) {
@@ -86,8 +88,10 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
     final companies = context.watch<CompanyProvider>().companies;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('New Service')),
+      appBar: const TopBar(title: 'New service'),
       body: FormContainer(
+        title: 'Add a service',
+        subtitle: 'Add a service and link it to one of your companies.',
         child: Form(
           key: _formKey,
           child: Column(
@@ -96,78 +100,68 @@ class _CreateServiceScreenState extends State<CreateServiceScreen> {
               DropdownButtonFormField<int>(
                 initialValue: _selectedCompanyId,
                 isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Company',
-                  prefixIcon: Icon(Icons.business),
-                  border: OutlineInputBorder(),
-                ),
+                decoration: appInputDecoration(context, label: 'Company'),
                 items: companies
                     .map((c) => DropdownMenuItem<int>(
-                  value: c.id,
-                  child: Text(
-                    '${c.name} (${c.registrationNumber})',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ))
+                          value: c.id,
+                          child: Text(
+                            '${c.name} (${c.registrationNumber})',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ))
                     .toList(),
                 onChanged: _isSubmitting
                     ? null
                     : (value) => setState(() => _selectedCompanyId = value),
                 validator: (value) =>
-                value == null ? 'Please select a company' : null,
+                    value == null ? 'Please select a company' : null,
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _nameController,
                 enabled: !_isSubmitting,
                 textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Service Name',
-                  hintText: 'e.g. Web Design',
-                  prefixIcon: Icon(Icons.design_services),
-                  border: OutlineInputBorder(),
+                decoration: appInputDecoration(
+                  context,
+                  label: 'Service name',
+                  hint: 'e.g. Web Design',
                 ),
                 validator: (v) => _required(v, 'Service name'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _descriptionController,
                 enabled: !_isSubmitting,
                 maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Description',
-                  hintText: 'What does this service include?',
-                  alignLabelWithHint: true,
-                  border: OutlineInputBorder(),
-                ),
+                decoration: appInputDecoration(
+                  context,
+                  label: 'Description',
+                  hint: 'What does this service include?',
+                ).copyWith(alignLabelWithHint: true),
                 validator: (v) => _required(v, 'Description'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _priceController,
                 enabled: !_isSubmitting,
                 keyboardType:
-                const TextInputType.numberWithOptions(decimal: true),
+                    const TextInputType.numberWithOptions(decimal: true),
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _submit(),
-                decoration: const InputDecoration(
-                  labelText: 'Price (RM)',
-                  hintText: 'e.g. 1500.00',
-                  prefixIcon: Icon(Icons.payments),
-                  border: OutlineInputBorder(),
+                decoration: appInputDecoration(
+                  context,
+                  label: 'Price',
+                  hint: '1500.00',
+                  prefixText: 'RM ',
+                  helper: 'Numbers only, up to 2 decimal places',
                 ),
                 validator: _validatePrice,
               ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _isSubmitting ? null : _submit,
-                child: _isSubmitting
-                    ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Text('Create Service'),
+              const SizedBox(height: 28),
+              FormActions(
+                submitLabel: 'Create service',
+                isSubmitting: _isSubmitting,
+                onSubmit: _submit,
               ),
             ],
           ),

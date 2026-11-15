@@ -2,22 +2,56 @@ import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../models/company.dart';
-import '../models/service.dart';
 import '../providers/company_provider.dart';
-import '../utils/format.dart';
+import '../widgets/app_input.dart';
+import '../widgets/company_card.dart';
+import '../widgets/message_view.dart';
+import '../widgets/summary_header.dart';
+import '../widgets/top_bar.dart';
 import 'create_company_screen.dart';
 import 'create_service_screen.dart';
 
-class CompanyListScreen extends StatelessWidget {
+class CompanyListScreen extends StatefulWidget {
   const CompanyListScreen({super.key});
 
-  void _openCreateCompany(BuildContext context) {
+  @override
+  State<CompanyListScreen> createState() => _CompanyListScreenState();
+}
+
+class _CompanyListScreenState extends State<CompanyListScreen> {
+  // Search is local UI state: it only changes what THIS screen shows.
+  // The provider still holds the full list, so the summary stats stay accurate.
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Company> _filter(List<Company> companies) {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return companies;
+    return companies
+        .where((c) =>
+            c.name.toLowerCase().contains(q) ||
+            c.registrationNumber.toLowerCase().contains(q))
+        .toList();
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _query = '');
+  }
+
+  void _openCreateCompany() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const CreateCompanyScreen()),
     );
   }
 
-  void _openCreateService(BuildContext context, {int? companyId}) {
+  void _openCreateService({int? companyId}) {
     if (context.read<CompanyProvider>().companies.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Create a company first.')),
@@ -34,267 +68,287 @@ class CompanyListScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<CompanyProvider>();
+    final companies = provider.companies;
+    final filtered = _filter(companies);
+
+    // Summary numbers (always for ALL companies, not just search results)
+    final serviceCount =
+        companies.fold<int>(0, (sum, c) => sum + c.services.length);
+    final totalValue = companies.fold<double>(
+      0,
+      (sum, c) => sum + c.services.fold<double>(0, (s, sv) => s + sv.price),
+    );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Companies'),
+      appBar: TopBar(
         actions: [
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
             onPressed: provider.isLoading ? null : provider.fetchCompanies,
           ),
+          const SizedBox(width: 8),
         ],
       ),
-      body: _buildBody(context, provider),
-      floatingActionButton: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
+      body: Column(
         children: [
-          FloatingActionButton.extended(
-            heroTag: 'addService',
-            onPressed: () => _openCreateService(context),
-            icon: const Icon(Icons.design_services),
-            label: const Text('Add Service'),
+          // Thin progress line while refreshing existing data
+          SizedBox(
+            height: 2,
+            child: provider.isLoading && companies.isNotEmpty
+                ? const LinearProgressIndicator(minHeight: 2)
+                : null,
           ),
-          const SizedBox(height: 12),
-          FloatingActionButton.extended(
-            heroTag: 'addCompany',
-            onPressed: () => _openCreateCompany(context),
-            icon: const Icon(Icons.add_business),
-            label: const Text('Add Company'),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isNarrow = constraints.maxWidth < 600;
+                final gutter = isNarrow ? 16.0 : 32.0;
+                final available = constraints.maxWidth - gutter * 2;
+                final contentWidth = available > 1200 ? 1200.0 : available;
+                final side = (constraints.maxWidth - contentWidth) / 2;
+
+                return RefreshIndicator(
+                  onRefresh: provider.fetchCompanies,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding:
+                        EdgeInsets.fromLTRB(side, isNarrow ? 20 : 32, side, 48),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PageHeader(
+                          isNarrow: isNarrow,
+                          onNewCompany: _openCreateCompany,
+                          onAddService: () => _openCreateService(),
+                        ),
+                        const SizedBox(height: 24),
+                        SummaryHeader(
+                          companyCount: companies.length,
+                          serviceCount: serviceCount,
+                          totalValue: totalValue,
+                          compact: isNarrow,
+                        ),
+                        const SizedBox(height: 32),
+                        _Toolbar(
+                          isNarrow: isNarrow,
+                          controller: _searchController,
+                          onChanged: (value) => setState(() => _query = value),
+                          onClear: _clearSearch,
+                          resultLabel:
+                              '${filtered.length} of ${companies.length} companies',
+                        ),
+                        const SizedBox(height: 16),
+                        if (provider.error != null && companies.isNotEmpty) ...[
+                          _ErrorBanner(message: provider.error!),
+                          const SizedBox(height: 16),
+                        ],
+                        _buildContent(provider, filtered, contentWidth),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBody(BuildContext context, CompanyProvider provider) {
-    // 1. First load: spinner
+  Widget _buildContent(
+    CompanyProvider provider,
+    List<Company> filtered,
+    double width,
+  ) {
+    // 1. First load
     if (provider.isLoading && provider.companies.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 64),
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
-    // 2. Failed and nothing to show: error with retry
+    // 2. Failed with nothing to show
     if (provider.error != null && provider.companies.isEmpty) {
-      return _MessageView(
-        icon: Icons.cloud_off,
+      return MessageView(
+        icon: Icons.cloud_off_outlined,
         title: 'Could not load companies',
         message: provider.error!,
-        actionLabel: 'Retry',
+        actionLabel: 'Try again',
         onAction: provider.fetchCompanies,
       );
     }
 
     // 3. Loaded but empty
     if (provider.companies.isEmpty) {
-      return _MessageView(
-        icon: Icons.business,
+      return MessageView(
+        icon: Icons.business_outlined,
         title: 'No companies yet',
-        message: 'Tap "Add Company" to create your first one.',
-        actionLabel: 'Refresh',
-        onAction: provider.fetchCompanies,
+        message: 'Create your first company to get started.',
+        actionLabel: 'New company',
+        onAction: _openCreateCompany,
       );
     }
 
-    // 4. The list (responsive: 1, 2 or 3 columns depending on width)
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const spacing = 16.0;
-        final width = constraints.maxWidth;
-        final columns = width >= 1200 ? 3 : (width >= 800 ? 2 : 1);
-        final cardWidth =
-        ((width - spacing * 2 - spacing * (columns - 1)) / columns)
-            .floorToDouble();
+    // 4. Search returned nothing
+    if (filtered.isEmpty) {
+      return MessageView(
+        icon: Icons.search_off,
+        title: 'No results',
+        message: 'No company matches "$_query".',
+        actionLabel: 'Clear search',
+        onAction: _clearSearch,
+      );
+    }
 
-        return RefreshIndicator(
-          onRefresh: provider.fetchCompanies,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(spacing),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (provider.isLoading) const LinearProgressIndicator(),
-                if (provider.error != null) _ErrorBanner(message: provider.error!),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: spacing,
-                  runSpacing: spacing,
-                  children: provider.companies
-                      .map((company) => SizedBox(
-                    width: cardWidth,
-                    child: _CompanyCard(
-                      company: company,
-                      onAddService: () =>
-                          _openCreateService(context, companyId: company.id),
-                    ),
-                  ))
-                      .toList(),
+    // 5. Responsive grid: 1, 2 or 3 columns
+    const spacing = 16.0;
+    final columns = width >= 1100 ? 3 : (width >= 700 ? 2 : 1);
+    final cardWidth =
+        ((width - spacing * (columns - 1)) / columns).floorToDouble();
+
+    return Wrap(
+      spacing: spacing,
+      runSpacing: spacing,
+      children: filtered
+          .map((company) => SizedBox(
+                width: cardWidth,
+                child: CompanyCard(
+                  // Keeps each card's expanded state correct when filtering
+                  key: ValueKey(company.id),
+                  company: company,
+                  onAddService: () => _openCreateService(companyId: company.id),
                 ),
-                const SizedBox(height: 140), // space so the buttons don't cover the last card
-              ],
-            ),
-          ),
-        );
-      },
+              ))
+          .toList(),
     );
   }
 }
 
-class _CompanyCard extends StatelessWidget {
-  const _CompanyCard({required this.company, required this.onAddService});
+class _PageHeader extends StatelessWidget {
+  const _PageHeader({
+    required this.isNarrow,
+    required this.onNewCompany,
+    required this.onAddService,
+  });
 
-  final Company company;
+  final bool isNarrow;
+  final VoidCallback onNewCompany;
   final VoidCallback onAddService;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = Theme.of(context).colorScheme;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  child: Text(company.name.isNotEmpty ? company.name[0].toUpperCase() : '?'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        company.name,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      Text(
-                        'Reg. No: ${company.registrationNumber}',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            Text(
-              'Services (${company.services.length})',
-              style: theme.textTheme.labelLarge,
-            ),
-            const SizedBox(height: 8),
-            if (company.services.isEmpty)
-              Text(
-                'No services yet',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontStyle: FontStyle.italic,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              )
-            else
-              ...company.services.map((s) => _ServiceRow(service: s)),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onAddService,
-                icon: const Icon(Icons.add),
-                label: const Text('Add service'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ServiceRow extends StatelessWidget {
-  const _ServiceRow({required this.service});
-
-  final Service service;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(service.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
-                Text(
-                  service.description,
-                  style: theme.textTheme.bodySmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Companies',
+          style: TextStyle(
+            fontSize: isNarrow ? 24 : 28,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.6,
+            color: colors.onSurface,
           ),
-          const SizedBox(width: 12),
-          Text(
-            formatPrice(service.price),
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: theme.colorScheme.primary,
-            ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Manage companies and the services they offer.',
+          style: TextStyle(fontSize: 14, color: colors.onSurfaceVariant),
+        ),
+      ],
+    );
+
+    final addService = OutlinedButton.icon(
+      onPressed: onAddService,
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('Add service'),
+    );
+    final newCompany = FilledButton.icon(
+      onPressed: onNewCompany,
+      icon: const Icon(Icons.add, size: 18),
+      label: const Text('New company'),
+    );
+
+    if (isNarrow) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          titleBlock,
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: addService),
+              const SizedBox(width: 8),
+              Expanded(child: newCompany),
+            ],
           ),
         ],
-      ),
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: titleBlock),
+        addService,
+        const SizedBox(width: 8),
+        newCompany,
+      ],
     );
   }
 }
 
-class _MessageView extends StatelessWidget {
-  const _MessageView({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onAction,
+class _Toolbar extends StatelessWidget {
+  const _Toolbar({
+    required this.isNarrow,
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+    required this.resultLabel,
   });
 
-  final IconData icon;
-  final String title;
-  final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
+  final bool isNarrow;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+  final String resultLabel;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = Theme.of(context).colorScheme;
 
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 64, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 16),
-            Text(title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onAction,
-              icon: const Icon(Icons.refresh),
-              label: Text(actionLabel),
-            ),
-          ],
-        ),
+    final search = TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: appInputDecoration(
+        context,
+        hint: 'Search by name or registration no.',
+        dense: true,
+        prefixIcon: Icon(Icons.search, size: 20, color: colors.onSurfaceVariant),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: onClear,
+              ),
       ),
+    );
+
+    if (isNarrow) return search;
+
+    return Row(
+      children: [
+        SizedBox(width: 360, child: search),
+        const Spacer(),
+        Text(
+          resultLabel,
+          style: TextStyle(fontSize: 13, color: colors.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }
@@ -309,13 +363,24 @@ class _ErrorBanner extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
 
     return Container(
-      margin: const EdgeInsets.only(top: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: colors.errorContainer,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.error.withValues(alpha: 0.3)),
       ),
-      child: Text(message, style: TextStyle(color: colors.onErrorContainer)),
+      child: Row(
+        children: [
+          Icon(Icons.error_outline, size: 18, color: colors.onErrorContainer),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(fontSize: 13, color: colors.onErrorContainer),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

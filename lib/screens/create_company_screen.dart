@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../providers/company_provider.dart';
 import '../services/api_exception.dart';
+import '../widgets/app_input.dart';
 import '../widgets/form_container.dart';
+import '../widgets/top_bar.dart';
 
 class CreateCompanyScreen extends StatefulWidget {
   const CreateCompanyScreen({super.key});
@@ -31,7 +33,7 @@ class _CreateCompanyScreenState extends State<CreateCompanyScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return; // shows red errors under fields
+    if (!_formKey.currentState!.validate()) return; // shows errors under fields
 
     // Grab these BEFORE the await, so we don't use `context` after an async gap
     final provider = context.read<CompanyProvider>();
@@ -46,7 +48,7 @@ class _CreateCompanyScreenState extends State<CreateCompanyScreen> {
         registrationNumber: _regNoController.text.trim(),
       );
       messenger.showSnackBar(
-        const SnackBar(content: Text('Company created successfully')),
+        const SnackBar(content: Text('Company created')),
       );
       navigator.pop(); // back to the list (already refreshed by the provider)
     } on ApiException catch (e) {
@@ -61,8 +63,10 @@ class _CreateCompanyScreenState extends State<CreateCompanyScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('New Company')),
+      appBar: const TopBar(title: 'New company'),
       body: FormContainer(
+        title: 'Create a company',
+        subtitle: 'Register a company so you can add services to it.',
         child: Form(
           key: _formKey,
           child: Column(
@@ -72,38 +76,32 @@ class _CreateCompanyScreenState extends State<CreateCompanyScreen> {
                 controller: _nameController,
                 enabled: !_isSubmitting,
                 textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Company Name',
-                  hintText: 'e.g. Vista Sdn Bhd',
-                  prefixIcon: Icon(Icons.business),
-                  border: OutlineInputBorder(),
+                decoration: appInputDecoration(
+                  context,
+                  label: 'Company name',
+                  hint: 'e.g. Vista Sdn Bhd',
                 ),
                 validator: (v) => _required(v, 'Company name'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _regNoController,
                 enabled: !_isSubmitting,
                 textInputAction: TextInputAction.done,
                 onFieldSubmitted: (_) => _submit(),
-                decoration: const InputDecoration(
-                  labelText: 'Registration Number',
-                  hintText: 'e.g. 202301000123',
-                  prefixIcon: Icon(Icons.badge),
-                  border: OutlineInputBorder(),
+                decoration: appInputDecoration(
+                  context,
+                  label: 'Registration number',
+                  hint: 'e.g. 202301000123',
+                  helper: 'Must be unique, e.g. SSM registration number',
                 ),
                 validator: (v) => _required(v, 'Registration number'),
               ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: _isSubmitting ? null : _submit,
-                child: _isSubmitting
-                    ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Text('Create Company'),
+              const SizedBox(height: 28),
+              FormActions(
+                submitLabel: 'Create company',
+                isSubmitting: _isSubmitting,
+                onSubmit: _submit,
               ),
             ],
           ),

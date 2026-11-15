@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'providers/company_provider.dart';
 import 'screens/company_list_screen.dart';
 import 'services/api_service.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(
@@ -22,7 +23,9 @@ class VistaApp extends StatelessWidget {
     return MaterialApp(
       title: 'Vista Companies',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: Colors.indigo),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: ThemeMode.system, // follows the Windows / phone dark mode setting
       home: const CompanyListScreen(),
     );
   }
